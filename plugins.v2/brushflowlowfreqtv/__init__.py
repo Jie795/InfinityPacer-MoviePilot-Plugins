@@ -251,7 +251,7 @@ class BrushFlowLowFreqTV(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "4.3.1"
+    plugin_version = "4.3.2"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -2069,7 +2069,7 @@ class BrushFlowLowFreqTV(_PluginBase):
             logger.info(f"开始执行刷流任务 ...")
 
             torrent_tasks: Dict[str, dict] = self.get_data("torrents") or {}
-            torrents_size = self.__calculate_seeding_torrents_size(torrent_tasks=torrent_tasks)
+            torrents_size = self.__calculate_effective_seeding_torrents_size(torrent_tasks=torrent_tasks)
 
             # 判断能否通过保种体积前置条件
             size_condition_passed, reason = self.__evaluate_size_condition_for_brush(torrents_size=torrents_size)
@@ -2148,7 +2148,7 @@ class BrushFlowLowFreqTV(_PluginBase):
         # 按发布日期降序排列
         torrents.sort(key=lambda x: x.pubdate or '', reverse=True)
 
-        torrents_size = self.__calculate_seeding_torrents_size(torrent_tasks=torrent_tasks)
+        torrents_size = self.__calculate_effective_seeding_torrents_size(torrent_tasks=torrent_tasks)
 
         logger.info(f"正在准备种子刷流，数量 {len(torrents)}")
 
@@ -2781,8 +2781,8 @@ class BrushFlowLowFreqTV(_PluginBase):
         # 获取种子信息Map
         torrent_info_map = {self.__get_hash(torrent): self.__get_torrent_info(torrent=torrent) for torrent in torrents}
 
-        # 计算当前总做种体积
-        total_torrent_size = self.__calculate_seeding_torrents_size(torrent_tasks=torrent_tasks)
+        # 计算当前总做种体积（按实际下载体积）
+        total_torrent_size = self.__calculate_effective_seeding_torrents_size(torrent_tasks=torrent_tasks)
 
         logger.info(
             f"当前做种体积 {self.__bytes_to_gb(total_torrent_size):.1f} GB，正在准备计算满足动态前置删除条件的种子")
@@ -3985,6 +3985,73 @@ class BrushFlowLowFreqTV(_PluginBase):
         计算保种种子体积
         """
         return sum(task.get("size", 0) for task in torrent_tasks.values() if not task.get("deleted", False))
+
+    def __calculate_effective_seeding_torrents_size(self, torrent_tasks: Dict[str, dict]) -> float:
+        """
+        计算有效做种体积：
+        - 对于qBittorrent：按当前选中文件之和（wanted 文件）统计；
+        - 对于Transmission：按 wanted 文件之和统计；
+        - 回退：若无法获取文件明细，则退回原逻辑（任务记录的 size）。
+        仅统计未标记删除的托管任务。
+        """
+        downloader = self.downloader
+        if not downloader:
+            return self.__calculate_seeding_torrents_size(torrent_tasks=torrent_tasks)
+
+        # 仅保留未删除的任务 hash 列表
+        active_hashes = [hash_key for hash_key, task in torrent_tasks.items() if not task.get("deleted", False)]
+        if not active_hashes:
+            return 0
+
+        total = 0
+        # qBittorrent: 通过 API 获取文件并按 wanted 统计大小
+        if self.downloader_helper.is_downloader("qbittorrent", service=self.service_info) and getattr(downloader, "qbc", None):
+            for hash_key in active_hashes:
+                try:
+                    files = downloader.qbc.torrents_files(torrent_hash=hash_key) or []
+                    if files:
+                        # qB 文件对象字段通常包含 size 和 priority 或 is_seeded/wanted 信息；
+                        # 这里以 priority>0 作为 wanted 的判定标准
+                        wanted_sizes = [f.get("size", 0) for f in files if (f.get("priority", 0) or 0) > 0]
+                        total += sum(wanted_sizes)
+                    else:
+                        total += torrent_tasks[hash_key].get("size", 0)
+                except Exception:
+                    total += torrent_tasks[hash_key].get("size", 0)
+            return total
+
+        # Transmission: 使用对象 API（需要从 downloader 获取 torrent -> files with wanted 标志）
+        if self.downloader_helper.is_downloader("transmission", service=self.service_info):
+            try:
+                torrents, error = downloader.get_torrents()
+                if not error and torrents:
+                    torrent_map = {self.__get_hash(t): t for t in torrents}
+                    for hash_key in active_hashes:
+                        t = torrent_map.get(hash_key)
+                        if not t:
+                            total += torrent_tasks[hash_key].get("size", 0)
+                            continue
+                        files = getattr(t, "files", None)
+                        wanted = getattr(t, "wanted", None)
+                        if callable(files):
+                            files = files()
+                        if files and wanted is not None:
+                            part = 0
+                            for idx, f in enumerate(files):
+                                try:
+                                    if idx < len(wanted) and wanted[idx]:
+                                        part += int(f.get("size", 0) if isinstance(f, dict) else getattr(f, "size", 0))
+                                except Exception:
+                                    continue
+                            total += part
+                        else:
+                            total += torrent_tasks[hash_key].get("size", 0)
+                    return total
+            except Exception:
+                pass
+
+        # 回退：使用记录的完整体积
+        return self.__calculate_seeding_torrents_size(torrent_tasks=torrent_tasks)
 
     def __auto_archive_tasks(self, torrent_tasks: Dict[str, dict]) -> None:
         """
