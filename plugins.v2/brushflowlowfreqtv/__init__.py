@@ -119,7 +119,8 @@ class BrushConfig:
             "proxy_delete",
             "qb_category",
             "site_hr_active",
-            "site_skip_tips"
+            "site_skip_tips",
+            "active_time_range"
             # 当新增支持字段时，仅在此处添加字段名
         }
         try:
@@ -164,7 +165,8 @@ class BrushConfig:
     "pubtime": "5-120",
     "seed_time": 96,
     "save_path": "/downloads/site2",
-    "hr_seed_time": 144
+    "hr_seed_time": 144,
+    "active_time_range": "09:00-18:00"
 }, {
     "sitename": "站点3",
     "freeleech": "free",
@@ -185,7 +187,8 @@ class BrushConfig:
     "proxy_delete": false,
     "qb_category": "刷流",
     "site_hr_active": true,
-    "site_skip_tips": true
+    "site_skip_tips": true,
+    "active_time_range": "11:00-23:00"
 }]"""
         return desc + config
 
@@ -251,7 +254,7 @@ class BrushFlowLowFreqTV(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "4.3.2"
+    plugin_version = "4.3.3"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
