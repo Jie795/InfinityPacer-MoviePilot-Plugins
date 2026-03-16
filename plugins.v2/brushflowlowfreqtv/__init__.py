@@ -254,7 +254,7 @@ class BrushFlowLowFreqTV(_PluginBase):
     # 插件图标
     plugin_icon = "brush.jpg"
     # 插件版本
-    plugin_version = "4.3.3"
+    plugin_version = "4.3.4"
     # 插件作者
     plugin_author = "jxxghp,InfinityPacer"
     # 作者主页
@@ -2131,6 +2131,11 @@ class BrushFlowLowFreqTV(_PluginBase):
         siteinfo = self.site_oper.get(siteid)
         if not siteinfo:
             logger.warning(f"站点不存在：{siteid}")
+            return True
+
+        # 检查站点独立的时间配置
+        if not self.__is_current_time_in_range(sitename=siteinfo.name):
+            logger.info(f"站点 {siteinfo.name} 当前不在指定的刷流时间区间内，跳过该站点")
             return True
 
         logger.info(f"开始获取站点 {siteinfo.name} 的新种子 ...")
@@ -4142,10 +4147,10 @@ class BrushFlowLowFreqTV(_PluginBase):
 
         return True
 
-    def __is_current_time_in_range(self) -> bool:
+    def __is_current_time_in_range(self, sitename: str = None) -> bool:
         """判断当前时间是否在开启时间区间内"""
 
-        brush_config = self.__get_brush_config()
+        brush_config = self.__get_brush_config(sitename=sitename)
         active_time_range = brush_config.active_time_range
 
         if not self.__is_valid_time_range(active_time_range):
